@@ -9,5 +9,5 @@
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()
-    PrivateData       = @{ PSData = @{ Tags = @('ActiveDirectory', 'NTLM', 'Kerberos', 'RC4', 'Security', 'Audit') } }
+    PrivateData       = @{ PSData = @{ Tags = @('ActiveDirectory', 'NTLM', 'Kerberos', 'RC4', 'Security', 'Audit'); LicenseUri = 'https://www.gnu.org/licenses/agpl-3.0.html' } }
 }

@@ -32,3 +32,6 @@ On the Domain Controllers GPO: *Network security: Restrict NTLM: Audit NTLM auth
 Invoke-Pester -Path tests
 Invoke-ScriptAnalyzer -Path AuthScope -Recurse
 ```
+
+## License
+AGPL-3.0. See [LICENSE](LICENSE).

@@ -27,4 +27,4 @@ Invoke-ScriptAnalyzer -Path AuthScope -Recurse -Severity Warning,Error
 - MVP solo lee DC (8004). Eventos 8001-8003 de servidores miembros: modo opcional futuro.
 - No se replica el inventario de `msDS-SupportedEncryptionTypes`: ya lo hacen los scripts de Microsoft (Kerberos-Crypto).
 - README en inglés primero, versión española después.
-- Licencia: pendiente de Marcos.
+- Licencia: AGPL-3.0 (como el resto de Scope).
