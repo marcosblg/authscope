@@ -1,0 +1,30 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        shell: [powershell, pwsh]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          Install-Module Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck -Scope CurrentUser
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+      - name: PSScriptAnalyzer
+        run: |
+          $r = Invoke-ScriptAnalyzer -Path AuthScope -Recurse -Severity Warning, Error
+          $r | Format-Table -AutoSize
+          if ($r) { exit 1 }
+      - name: Pester
+        run: |
+          Import-Module Pester -RequiredVersion 5.7.1
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'tests'
+          $c.Run.Exit = $true
+          $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c

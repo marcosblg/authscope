@@ -1,0 +1,4 @@
+AuthScope-*.html
+AuthScope-*.json
+AuthScope-*.csv
+out/
