@@ -7,7 +7,7 @@ Familia Scope de marcosblg, primera en PowerShell.
 ## Mapa
 - `AuthScope/AuthScope.psd1` — manifiesto (exporta solo `Invoke-AuthScope`).
 - `AuthScope/AuthScope.psm1` — todo el módulo:
-  - `$DcCollector`: scriptblock que corre en cada DC por WinRM (registro + eventos 8004, 4022/4023, 4030-4033, 4776, KDC 201-209).
+  - `$DcCollector`: scriptblock que corre en cada DC por WinRM (registro + eventos 8004, 4022/4023, 4030-4033, 4776, 4624 NTLM V1, KDC 201-209).
   - `Get-ASDcData` (recogida), `Get-ASNtlmUsage` (agrega uso NTLM), `Get-ASFinding` (reglas → hallazgos con corrección), `ConvertTo-ASHtml` (informe), `Invoke-AuthScope` (orquesta y escribe HTML/JSON/CSV).
 - `tests/AuthScope.Tests.ps1` — Pester 5, con datos falsos (no necesita AD).
 - `.github/workflows/ci.yml` — PSScriptAnalyzer + Pester en PS 5.1 y 7.

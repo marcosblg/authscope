@@ -11,7 +11,7 @@ NTLM is the basis of relay and pass-the-hash attacks, and Microsoft plans to dis
 |---|---|
 | NTLM authentications per account, client and target server, merged across all DCs | `Microsoft-Windows-NTLM/Operational` 8004 |
 | Enhanced NTLM logging: NTLM to the DC and forwarded by the DC, with NTLM version (replaces 8004/4776 on that DC) | `Microsoft-Windows-NTLM/Operational` 4022/4023, 4030-4033 |
-| NTLMv1 in use | `NtlmVersion` field of the enhanced events |
+| NTLMv1 in use | `NtlmVersion` field of the enhanced events; on DCs without them (2016, unpatched 2019/2022), Security 4624 with `LmPackageName = NTLM V1` (logons to the DC itself) |
 | NTLM credential validations (fallback when 8004 auditing is off) | Security 4776 |
 | NTLM auditing disabled on a DC (the report would look empty) | `AuditNTLMInDomain` |
 | DC still accepts NTLMv1 / LM | `LmCompatibilityLevel` |

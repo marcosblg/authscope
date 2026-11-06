@@ -11,7 +11,7 @@ NTLM es la base de los ataques de relay y pass-the-hash, y Microsoft prevé desa
 |---|---|
 | Autenticaciones NTLM por cuenta, equipo cliente y servidor destino, unidas de todos los DC | `Microsoft-Windows-NTLM/Operational` 8004 |
 | Registro NTLM mejorado: NTLM hacia el DC y reenviado por el DC, con versión NTLM (sustituye a 8004/4776 en ese DC) | `Microsoft-Windows-NTLM/Operational` 4022/4023, 4030-4033 |
-| NTLMv1 en uso | Campo `NtlmVersion` de los eventos mejorados |
+| NTLMv1 en uso | Campo `NtlmVersion` de los eventos mejorados; en DC sin ellos (2016, 2019/2022 sin actualizar), Seguridad 4624 con `LmPackageName = NTLM V1` (inicios de sesión en el propio DC) |
 | Validaciones de credenciales NTLM (alternativa si la auditoría 8004 está apagada) | Seguridad 4776 |
 | Auditoría NTLM desactivada en un DC (el informe saldría vacío) | `AuditNTLMInDomain` |
 | El DC sigue aceptando NTLMv1 / LM | `LmCompatibilityLevel` |

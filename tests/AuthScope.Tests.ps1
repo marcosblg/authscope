@@ -2,9 +2,9 @@ BeforeAll {
     Import-Module "$PSScriptRoot\..\AuthScope\AuthScope.psd1" -Force
 
     function New-Dc {
-        param($Server = 'DC1', $Audit = 7, $Lm = 5, $Ntlm = @(), $Cred = @(), $Kdc = @(), $Reachable = $true)
+        param($Server = 'DC1', $Audit = 7, $Lm = 5, $Ntlm = @(), $Cred = @(), $Logon = @(), $Kdc = @(), $Reachable = $true)
         [pscustomobject]@{ Server = $Server; Reachable = $Reachable; AuditNTLMInDomain = $Audit; LmCompatibilityLevel = $Lm
-            NtlmEvents = $Ntlm; CredentialEvents = $Cred; KdcEvents = $Kdc; Errors = @() }
+            NtlmEvents = $Ntlm; CredentialEvents = $Cred; LogonEvents = $Logon; KdcEvents = $Kdc; Errors = @() }
     }
     function New-8004($User, $Client, $Target, $Time = '2026-11-01') {
         [pscustomobject]@{ Id = 8004; Time = [datetime]$Time; Data = @{ DomainName = 'LAB'; UserName = $User; WorkstationName = $Client; SChannelName = $Target } }
@@ -36,6 +36,21 @@ Describe 'Get-ASNtlmUsage' {
             $f = @(Get-ASFinding -DcData @($dc) -NtlmUsage $u)
             ($f | Where-Object Title -like 'NTLMv1 in use*').Severity | Should -Be 'Critical'
             $f.Title | Should -Not -Contain 'NTLM auditing is off: report is incomplete'
+        }
+    }
+    It 'reports NTLMv1 from 4624 only on DCs without enhanced logging' {
+        $logon = [pscustomobject]@{ Id = 4624; Time = [datetime]'2026-11-01'; Data = @{ TargetDomainName = 'LAB'; TargetUserName = 'scan'; WorkstationName = 'MFP1'; IpAddress = '10.0.0.9'; LmPackageName = 'NTLM V1' } }
+        $e4022 = [pscustomobject]@{ Id = 4022; Time = [datetime]'2026-11-01'; Data = @{ DomainName = 'LAB'; Username = 'scan'; RemoteClientMachine = 'MFP1'; ClientIP = '10.0.0.9'; NtlmVersion = 'NTLMv1' } }
+        InModuleScope AuthScope -Parameters @{ old = (New-Dc -Server DC16 -Logon @($logon, $logon)); new = (New-Dc -Server DC25 -Ntlm @($e4022) -Logon @($logon)) } {
+            $u = @(Get-ASNtlmUsage -DcData @($old))
+            $u.Count | Should -Be 1
+            $u[0].Source | Should -Be '4624'
+            $u[0].User | Should -Be 'LAB\scan'
+            $u[0].Client | Should -Be 'MFP1 (10.0.0.9)'
+            $u[0].Target | Should -Be 'DC16'
+            $u[0].Count | Should -Be 2
+            (@(Get-ASFinding -DcData @($old) -NtlmUsage $u) | Where-Object Title -like 'NTLMv1 in use*').Title | Should -Be 'NTLMv1 in use: 2 authentications'
+            @(Get-ASNtlmUsage -DcData @($new)).Source | Should -Be '4022'
         }
     }
 }
@@ -96,7 +111,7 @@ Describe 'ConvertTo-ASHtml' {
 Describe 'Invoke-AuthScope' {
     It 'writes HTML, JSON and CSV and returns the worst status' {
         Mock -ModuleName AuthScope Get-ASDcData { [pscustomobject]@{ Server = 'DC1'; Reachable = $true; AuditNTLMInDomain = 7; LmCompatibilityLevel = 2
-                NtlmEvents = @(); CredentialEvents = @(); KdcEvents = @(); Errors = @() } }
+                NtlmEvents = @(); CredentialEvents = @(); LogonEvents = @(); KdcEvents = @(); Errors = @() } }
         $r = Invoke-AuthScope -ComputerName DC1 -OutputPath $TestDrive
         $r.Status | Should -Be 'Warning'
         (Get-ChildItem $TestDrive -Filter 'AuthScope-*.html').Count | Should -Be 1

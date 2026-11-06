@@ -30,7 +30,8 @@ $script:DcCollector = {
 
     function Get-Ev($Filter, $Max) {
         try {
-            foreach ($e in Get-WinEvent -FilterHashtable $Filter -MaxEvents $Max -ErrorAction Stop) {
+            $p = if ($Filter.XPath) { @{ LogName = $Filter.LogName; FilterXPath = $Filter.XPath } } else { @{ FilterHashtable = $Filter } }
+            foreach ($e in Get-WinEvent @p -MaxEvents $Max -ErrorAction Stop) {
                 $data = @{}
                 foreach ($n in ([xml]$e.ToXml()).Event.EventData.Data) { $data[[string]$n.Name] = [string]$n.'#text' }
                 [pscustomobject]@{ Id = $e.Id; Time = $e.TimeCreated; Provider = $e.ProviderName; Data = $data; Message = $e.Message }
@@ -43,6 +44,9 @@ $script:DcCollector = {
     # 4022/4023 (NTLM to this DC) and 4030-4033 (forwarded by this DC) = enhanced NTLM logging, on by default (KB5064479).
     $ntlm = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8004, 4022, 4023, 4030, 4031, 4032, 4033; StartTime = $since } $MaxEvents)
     $cred = @(Get-Ev @{ LogName = 'Security'; Id = 4776; StartTime = $since } $MaxEvents)
+    # NTLMv1 logons to this DC, filtered on the DC so the rest of 4624 never leaves it. XPath: PS 5.1 ignores EventData keys in FilterHashtable.
+    $ms = [int64]$Days * 86400000
+    $logon = @(Get-Ev @{ LogName = 'Security'; XPath = "*[System[EventID=4624 and TimeCreated[timediff(@SystemTime) <= $ms]]] and *[EventData[Data[@Name='LmPackageName']='NTLM V1']]" } $MaxEvents)
     $kdc = @(Get-Ev @{ LogName = 'System'; Id = 201..209; StartTime = $since } $MaxEvents |
             Where-Object { $_.Provider -match 'Kerberos-Key-Distribution|Kdc' })
 
@@ -51,6 +55,7 @@ $script:DcCollector = {
         LmCompatibilityLevel = Get-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' 'LmCompatibilityLevel'
         NtlmEvents           = $ntlm
         CredentialEvents     = $cred
+        LogonEvents          = $logon
         KdcEvents            = $kdc
         Errors               = $errors
     }
@@ -72,13 +77,14 @@ function Get-ASDcData {
                 LmCompatibilityLevel = $r.LmCompatibilityLevel
                 NtlmEvents           = @($r.NtlmEvents)
                 CredentialEvents     = @($r.CredentialEvents)
+                LogonEvents          = @($r.LogonEvents)
                 KdcEvents            = @($r.KdcEvents)
                 Errors               = @($r.Errors)
             }
         } catch {
             [pscustomobject]@{
                 Server = $dc; Reachable = $false; AuditNTLMInDomain = $null; LmCompatibilityLevel = $null
-                NtlmEvents = @(); CredentialEvents = @(); KdcEvents = @(); Errors = @($_.Exception.Message)
+                NtlmEvents = @(); CredentialEvents = @(); LogonEvents = @(); KdcEvents = @(); Errors = @($_.Exception.Message)
             }
         }
     }
@@ -105,6 +111,11 @@ function Get-ASNtlmUsage {
             foreach ($e in $dc.CredentialEvents) {
                 [pscustomobject]@{ Source = '4776'; Dc = $dc.Server; Time = $e.Time; Version = ''
                     User = $e.Data['TargetUserName']; Client = $e.Data['Workstation']; Target = '' }
+            }
+            # Without enhanced logging (2016, unpatched 2019/2022) 4624 is the only NTLMv1 evidence; with it, 4022 already counts these.
+            foreach ($e in $dc.LogonEvents) {
+                [pscustomobject]@{ Source = '4624'; Dc = $dc.Server; Time = $e.Time; Version = 'NTLMv1'
+                    User = "$($e.Data['TargetDomainName'])\$($e.Data['TargetUserName'])"; Client = "$($e.Data['WorkstationName']) ($($e.Data['IpAddress']))"; Target = $dc.Server }
             }
         }
     }
@@ -147,7 +158,7 @@ function Get-ASFinding {
         if ($lm -lt 5) {
             New-ASFinding 'Warning' 'Config' $dc.Server "DC accepts NTLMv1 (LmCompatibilityLevel = $lm)" `
                 'NTLMv1 responses can be cracked or relayed; they give attackers domain credentials.' `
-                "Check who still uses NTLMv1 first (Version column of NTLM usage on DCs with enhanced NTLM logging, or 4624 with 'NTLM V1'), then GPO 'Network security: LAN Manager authentication level' = Send NTLMv2 response only. Refuse LM & NTLM."
+                "Check who still uses NTLMv1 first (NTLMv1 rows in NTLM usage, from enhanced events 4022/4023 or Security 4624), then GPO 'Network security: LAN Manager authentication level' = Send NTLMv2 response only. Refuse LM & NTLM."
         }
         $dc.KdcEvents | Group-Object Id | ForEach-Object {
             $k = $script:KdcEvents[[int]$_.Name]
@@ -214,7 +225,7 @@ th{font-size:12px;text-transform:uppercase;color:var(--mut)}
     }
     & $table 'Findings' $Result.Findings 'Severity', 'Category', 'Server', 'Title', 'Detail', 'Fix'
     & $table 'NTLM usage (top 200)' ($Result.NtlmUsage | Select-Object -First 200) 'User', 'Client', 'Target', 'Version', 'Count', 'LastSeen', 'Source', 'Dcs'
-    & $table 'Domain controllers' $Result.DcSummary 'Server', 'Reachable', 'AuditNTLMInDomain', 'LmCompatibilityLevel', 'NtlmEvents', 'CredentialEvents', 'KdcEvents'
+    & $table 'Domain controllers' $Result.DcSummary 'Server', 'Reachable', 'AuditNTLMInDomain', 'LmCompatibilityLevel', 'NtlmEvents', 'CredentialEvents', 'LogonEvents', 'KdcEvents'
     [void]$sb.Append("<p class='mut'>Read-only audit. Generated by AuthScope.</p></body></html>")
     $sb.ToString()
 }
@@ -224,7 +235,8 @@ function Invoke-AuthScope {
     .SYNOPSIS
     Read-only audit of NTLM usage and Kerberos RC4 failures across all domain controllers.
     .DESCRIPTION
-    Connects to each DC with WinRM, reads NTLM (8004), credential validation (4776) and KDC (201-209)
+    Connects to each DC with WinRM, reads NTLM (8004, 4022/4023, 4030-4033), credential validation (4776),
+    NTLMv1 logons (4624) and KDC (201-209)
     events plus NTLM-related registry settings, and writes an HTML report, JSON and a CSV of findings.
     .EXAMPLE
     Invoke-AuthScope -Days 14 -OutputPath C:\Reports
@@ -252,7 +264,7 @@ function Invoke-AuthScope {
         DcSummary         = @($dcData | ForEach-Object {
                 [pscustomobject]@{ Server = $_.Server; Reachable = $_.Reachable; AuditNTLMInDomain = $_.AuditNTLMInDomain
                     LmCompatibilityLevel = $_.LmCompatibilityLevel; NtlmEvents = $_.NtlmEvents.Count
-                    CredentialEvents = $_.CredentialEvents.Count; KdcEvents = $_.KdcEvents.Count }
+                    CredentialEvents = $_.CredentialEvents.Count; LogonEvents = $_.LogonEvents.Count; KdcEvents = $_.KdcEvents.Count }
             })
     }
     $null = New-Item -ItemType Directory -Force -Path $OutputPath
