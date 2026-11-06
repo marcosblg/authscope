@@ -11,7 +11,7 @@ Familia Scope de marcosblg, primera en PowerShell.
   - `Get-ASDcData` (recogida), `Get-ASNtlmUsage` (agrega uso NTLM), `Get-ASFinding` (reglas → hallazgos con corrección), `ConvertTo-ASHtml` (informe), `Invoke-AuthScope` (orquesta y escribe HTML/JSON/CSV).
 - `tests/AuthScope.Tests.ps1` — Pester 5, con datos falsos (no necesita AD).
 - `.github/workflows/ci.yml` — PSScriptAnalyzer + Pester en PS 5.1 y 7.
-- `README.md` — inglés. `TRASPASO.md` — estado y siguiente paso.
+- `README.md` — inglés; `README.es.md` — español. `TRASPASO.md` — estado y siguiente paso.
 
 ## Arranque y pruebas
 ```powershell
