@@ -41,16 +41,18 @@ $script:DcCollector = {
         }
     }
 
-    # Member servers: 8001 = outgoing NTLM from this server, 8002/8003 = incoming NTLM to it (Restrict NTLM audit GPOs).
+    # Member servers: 8001 = outgoing NTLM from this server, 8002/8003 = incoming NTLM to it (Restrict NTLM audit GPOs),
+    # 4022/4023 = incoming NTLM with enhanced logging (any server, no GPO needed; verified on Server 2025).
     if ($Member) {
         return [pscustomobject]@{
             AuditNTLMInDomain = $null; LmCompatibilityLevel = $null; CredentialEvents = @(); LogonEvents = @(); KdcEvents = @(); Errors = $errors
-            NtlmEvents = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8001, 8002, 8003; StartTime = $since } $MaxEvents)
+            NtlmEvents = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8001, 8002, 8003, 4022, 4023; StartTime = $since } $MaxEvents)
         }
     }
 
     # 4022/4023 (NTLM to this DC) and 4030-4033 (forwarded by this DC) = enhanced NTLM logging, on by default (KB5064479).
-    $ntlm = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8004, 4022, 4023, 4030, 4031, 4032, 4033; StartTime = $since } $MaxEvents)
+    # 8006 = like 8004, for a logon passed through to a trusting domain.
+    $ntlm = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8004, 8006, 4022, 4023, 4030, 4031, 4032, 4033; StartTime = $since } $MaxEvents)
     $cred = @(Get-Ev @{ LogName = 'Security'; Id = 4776; StartTime = $since } $MaxEvents)
     # NTLMv1 logons to this DC, filtered on the DC so the rest of 4624 never leaves it. XPath: PS 5.1 ignores EventData keys in FilterHashtable.
     $ms = [int64]$Days * 86400000
@@ -104,23 +106,25 @@ function Get-ASNtlmUsage {
     # One row per account + client + target server, merged across all DCs.
     param([object[]]$DcData)
     $rows = foreach ($dc in $DcData) {
-        # shortcut: a DC with enhanced events also logs every one as 8004/4776, so those are skipped for the whole window; mixed windows (patched mid-window) lose the older 8004/4776.
-        $enhanced = @($dc.NtlmEvents | Where-Object { $_.Id -ne 8004 }).Count -gt 0
+        # shortcut: a server with enhanced events also logs every one as 8004/8006/4776 (DC) or 8002/8003 (member), so those are skipped for the whole window; mixed windows (patched mid-window) lose the older ones.
+        $enhanced = @($dc.NtlmEvents | Where-Object { $_.Id -in 4022, 4023, 4030, 4031, 4032, 4033 }).Count -gt 0
         foreach ($e in $dc.NtlmEvents) {
             $d = $e.Data
             switch ($e.Id) {
-                8004 { if (-not $enhanced) { [pscustomobject]@{ Source = '8004'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                { $_ -in 8004, 8006 } { if (-not $enhanced) { [pscustomobject]@{ Source = "$($e.Id)"; Dc = $dc.Server; Time = $e.Time; Version = ''
                             User = "$($d['DomainName'])\$($d['UserName'])"; Client = $d['WorkstationName']; Target = $d['SChannelName'] } } }
                 { $_ -in 4022, 4023 } { [pscustomobject]@{ Source = "$($e.Id)"; Dc = $dc.Server; Time = $e.Time; Version = $d['NtlmVersion']
-                        User = "$($d['DomainName'])\$($d['Username'])"; Client = "$($d['RemoteClientMachine']) ($($d['ClientIP']))"; Target = $dc.Server } }
+                        # Real 4022 can carry a UPN in Username and the literal 'Null' in DomainName.
+                        User = if ($d['DomainName'] -in '', 'Null' -or $d['Username'] -match '@') { $d['Username'] } else { "$($d['DomainName'])\$($d['Username'])" }
+                        Client = "$($d['RemoteClientMachine']) ($($d['ClientIP']))"; Target = $dc.Server } }
                 # shortcut: one NTLM logon to a member can show as 8004 on the DC plus 8003 on the member (and 8001 on the caller), so per-target counts add up; dedupe by time/user if it misleads.
                 8001 { [pscustomobject]@{ Source = '8001'; Dc = $dc.Server; Time = $e.Time; Version = ''
                         User = "$($d['DomainName'])\$($d['UserName'])"; Client = "$($dc.Server) ($($d['ProcessName']))"; Target = $d['TargetName'] } }
-                # 8002 has no remote user or client, only the local process that accepted NTLM.
-                8002 { [pscustomobject]@{ Source = '8002'; Dc = $dc.Server; Time = $e.Time; Version = ''
-                        User = ''; Client = "(unknown, process $($d['ProcessName']))"; Target = $dc.Server } }
-                8003 { [pscustomobject]@{ Source = '8003'; Dc = $dc.Server; Time = $e.Time; Version = ''
-                        User = "$($d['DomainName'])\$($d['UserName'])"; Client = $d['Workstation']; Target = $dc.Server } }
+                # 8002 has no remote user or client: ClientUserName is the local server account (TEKU-DC$ in a real event).
+                8002 { if (-not $enhanced) { [pscustomobject]@{ Source = '8002'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                        User = ''; Client = "(unknown, process $($d['ProcessName']))"; Target = $dc.Server } } }
+                8003 { if (-not $enhanced) { [pscustomobject]@{ Source = '8003'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                        User = "$($d['DomainName'])\$($d['UserName'])"; Client = $d['Workstation']; Target = $dc.Server } } }
                 { $_ -in 4030..4033 } { [pscustomobject]@{ Source = "$($e.Id)"; Dc = $dc.Server; Time = $e.Time; Version = $d['NtlmVersion']
                         User = "$($d['AccountDomain'])\$($d['AccountName'])"; Client = $d['AccountMachine']; Target = $d['ServerName'] } }
             }
@@ -169,12 +173,12 @@ function Get-ASFinding {
         if ($dc.Role -eq 'Member') {
             if (-not @($dc.NtlmEvents).Count) {
                 New-ASFinding 'Warning' 'Config' $dc.Server 'No NTLM audit events on member server' `
-                    'Events 8001-8003 are not logged (auditing off, or no NTLM in the window).' `
+                    'Events 8001-8003 and 4022/4023 are not logged (auditing off and no enhanced NTLM logging, or no NTLM in the window).' `
                     "GPO on member servers: 'Network security: Restrict NTLM: Audit Incoming NTLM Traffic' = Enable auditing for all accounts and 'Restrict NTLM: Outgoing NTLM traffic to remote servers' = Audit all."
             }
             continue
         }
-        if (-not $dc.AuditNTLMInDomain -and -not @($dc.NtlmEvents | Where-Object { $_.Id -ne 8004 }).Count) {
+        if (-not $dc.AuditNTLMInDomain -and -not @($dc.NtlmEvents | Where-Object { $_.Id -notin 8004, 8006 }).Count) {
             New-ASFinding 'Warning' 'Config' $dc.Server 'NTLM auditing is off: report is incomplete' `
                 'Event 8004 is not logged, so NTLM usage on this DC is invisible (only 4776, without target server).' `
                 "GPO on Domain Controllers: 'Network security: Restrict NTLM: Audit NTLM authentication in this domain' = Enable all."
@@ -264,7 +268,7 @@ function Invoke-AuthScope {
     Connects to each DC with WinRM, reads NTLM (8004, 4022/4023, 4030-4033), credential validation (4776),
     NTLMv1 logons (4624) and KDC (201-209)
     events plus NTLM-related registry settings, and writes an HTML report, JSON and a CSV of findings.
-    With -MemberServer it also reads NTLM audit events 8001-8003 on those servers.
+    With -MemberServer it also reads NTLM events 8001-8003 and 4022/4023 on those servers.
     .EXAMPLE
     Invoke-AuthScope -Days 14 -OutputPath C:\Reports
     .EXAMPLE
@@ -273,7 +277,7 @@ function Invoke-AuthScope {
     [CmdletBinding()]
     param(
         [string[]]$ComputerName,
-        # Optional: member servers to read 8001-8003 from (NTLM seen at the server itself, needs the Restrict NTLM audit GPOs).
+        # Optional: member servers to read 8001-8003/4022-4023 from (NTLM seen at the server itself; 8001-8003 need the Restrict NTLM audit GPOs).
         [string[]]$MemberServer,
         [ValidateRange(1, 365)][int]$Days = 7,
         # shortcut: caps events per log per DC, raise it or aggregate remotely if big domains hit the cap.

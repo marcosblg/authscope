@@ -70,6 +70,21 @@ Describe 'Get-ASNtlmUsage' {
             ($f | Where-Object Server -EQ 'FS2').Title | Should -Be 'No NTLM audit events on member server'
         }
     }
+    It 'prefers 4022 over 8002/8003 on members and counts 8006 like 8004 (shapes from real TEKU-DC events)' {
+        $e4022 = [pscustomobject]@{ Id = 4022; Time = [datetime]'2026-11-06'; Data = @{ Username = 'Administrador@teku.local'; DomainName = 'Null'; RemoteClientMachine = 'APLUSSERVER'; ClientIP = '10.10.33.51'; NtlmVersion = 'NTLMv2' } }
+        $e8002 = [pscustomobject]@{ Id = 8002; Time = [datetime]'2026-11-06'; Data = @{ ProcessName = '-'; ClientUserName = 'TEKU-DC$'; ClientDomainName = 'TEKU' } }
+        $e8006 = [pscustomobject]@{ Id = 8006; Time = [datetime]'2026-11-06'; Data = @{ SChannelName = 'APLUSSERVER'; UserName = 'administrador'; DomainName = 'TEKU'; WorkstationName = 'DESKTOP-NKPO9QP' } }
+        InModuleScope AuthScope -Parameters @{ fs = (New-Dc -Server FS1 -Role Member -Audit $null -Lm $null -Ntlm @($e4022, $e8002)); dc = (New-Dc -Server DC19 -Ntlm @($e8006)) } {
+            $u = @(Get-ASNtlmUsage -DcData @($fs))
+            $u.Count | Should -Be 1
+            $u[0].User | Should -Be 'Administrador@teku.local'
+            $u[0].Client | Should -Be 'APLUSSERVER (10.10.33.51)'
+            $u[0].Target | Should -Be 'FS1'
+            $t = @(Get-ASNtlmUsage -DcData @($dc))
+            $t[0].Source | Should -Be '8006'
+            $t[0].Target | Should -Be 'APLUSSERVER'
+        }
+    }
 }
 
 Describe 'Get-ASFinding' {

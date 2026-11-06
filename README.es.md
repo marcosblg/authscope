@@ -9,14 +9,14 @@ NTLM es la base de los ataques de relay y pass-the-hash, y Microsoft prevé desa
 ## Qué comprueba
 | Comprobación | Origen |
 |---|---|
-| Autenticaciones NTLM por cuenta, equipo cliente y servidor destino, unidas de todos los DC | `Microsoft-Windows-NTLM/Operational` 8004 |
+| Autenticaciones NTLM por cuenta, equipo cliente y servidor destino, unidas de todos los DC | `Microsoft-Windows-NTLM/Operational` 8004 (8006 si se reenvía a un dominio que confía) |
 | Registro NTLM mejorado: NTLM hacia el DC y reenviado por el DC, con versión NTLM (sustituye a 8004/4776 en ese DC) | `Microsoft-Windows-NTLM/Operational` 4022/4023, 4030-4033 |
 | NTLMv1 en uso | Campo `NtlmVersion` de los eventos mejorados; en DC sin ellos (2016, 2019/2022 sin actualizar), Seguridad 4624 con `LmPackageName = NTLM V1` (inicios de sesión en el propio DC) |
 | Validaciones de credenciales NTLM (alternativa si la auditoría 8004 está apagada) | Seguridad 4776 |
 | Auditoría NTLM desactivada en un DC (el informe saldría vacío) | `AuditNTLMInDomain` |
 | El DC sigue aceptando NTLMv1 / LM | `LmCompatibilityLevel` |
 | Fallos de Kerberos RC4 / falta de clave AES | Sistema, eventos KDC 201-209 |
-| Opcional, con `-MemberServer`: NTLM visto en servidores miembros (saliente 8001, entrante 8002/8003) | `Microsoft-Windows-NTLM/Operational` 8001-8003 |
+| Opcional, con `-MemberServer`: NTLM visto en servidores miembros (saliente 8001, entrante 8002/8003, o 4022/4023 con registro mejorado, que sustituye a 8002/8003 en ese servidor) | `Microsoft-Windows-NTLM/Operational` 8001-8003, 4022/4023 |
 
 Nunca escribe en AD, en los DC ni en los servidores miembros.
 
@@ -24,7 +24,7 @@ Nunca escribe en AD, en los DC ni en los servidores miembros.
 ```powershell
 Install-Module AuthScope -Scope CurrentUser
 Invoke-AuthScope -Days 14 -OutputPath C:\Informes
-Invoke-AuthScope -MemberServer FS1, SQL1   # además lee 8001-8003 en esos servidores
+Invoke-AuthScope -MemberServer FS1, SQL1   # además lee 8001-8003 y 4022/4023 en esos servidores
 ```
 Requisitos: Windows PowerShell 5.1 o PowerShell 7, WinRM hacia cada DC y permiso para leer el registro de Seguridad (Admins. del dominio o equivalente). Sin `-ComputerName` audita todos los DC del dominio actual.
 
@@ -33,7 +33,7 @@ Salida: `AuthScope-<fecha>.html`, `.json` (todos los datos) y `-findings.csv`.
 ## Activar antes la auditoría NTLM
 Windows Server 2025 y los DC 2019/2022 actualizados (KB5064479) ya traen el registro NTLM mejorado. En los demás, en la GPO de Domain Controllers: *Seguridad de red: restringir NTLM: auditar la autenticación NTLM en este dominio* = **Habilitar todo**. Déjalo unos días y luego ejecuta AuthScope.
 
-Para `-MemberServer`, en la GPO de los servidores miembros: *Restringir NTLM: auditar el tráfico NTLM entrante* = **Habilitar auditoría para todas las cuentas** (8002/8003) y *Restringir NTLM: tráfico NTLM saliente hacia servidores remotos* = **Auditar todo** (8001). Un mismo inicio de sesión puede salir en el DC (8004) y en el miembro (8003), así que los totales por servidor pueden contarse dos veces.
+Para `-MemberServer`: los servidores con registro NTLM mejorado (Server 2025, y 2019/2022 desde octubre de 2026) registran el NTLM entrante como 4022/4023 sin GPO. Si no, en la GPO de los servidores miembros: *Restringir NTLM: auditar el tráfico NTLM entrante* = **Habilitar auditoría para todas las cuentas** (8002/8003) y *Restringir NTLM: tráfico NTLM saliente hacia servidores remotos* = **Auditar todo** (8001). Un mismo inicio de sesión puede salir en el DC (8004) y en el miembro (8003), así que los totales por servidor pueden contarse dos veces.
 
 ## Desarrollo
 ```powershell
