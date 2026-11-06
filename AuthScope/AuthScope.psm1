@@ -40,7 +40,8 @@ $script:DcCollector = {
         }
     }
 
-    $ntlm = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8004; StartTime = $since } $MaxEvents)
+    # 4022/4023 (NTLM to this DC) and 4030-4033 (forwarded by this DC) = enhanced NTLM logging, on by default (KB5064479).
+    $ntlm = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8004, 4022, 4023, 4030, 4031, 4032, 4033; StartTime = $since } $MaxEvents)
     $cred = @(Get-Ev @{ LogName = 'Security'; Id = 4776; StartTime = $since } $MaxEvents)
     $kdc = @(Get-Ev @{ LogName = 'System'; Id = 201..209; StartTime = $since } $MaxEvents |
             Where-Object { $_.Provider -match 'Kerberos-Key-Distribution|Kdc' })
@@ -87,20 +88,31 @@ function Get-ASNtlmUsage {
     # One row per account + client + target server, merged across all DCs.
     param([object[]]$DcData)
     $rows = foreach ($dc in $DcData) {
+        # shortcut: a DC with enhanced events also logs every one as 8004/4776, so those are skipped for the whole window; mixed windows (patched mid-window) lose the older 8004/4776.
+        $enhanced = @($dc.NtlmEvents | Where-Object { $_.Id -ne 8004 }).Count -gt 0
         foreach ($e in $dc.NtlmEvents) {
-            [pscustomobject]@{ Source = '8004'; Dc = $dc.Server; Time = $e.Time
-                User = "$($e.Data['DomainName'])\$($e.Data['UserName'])"; Client = $e.Data['WorkstationName']; Target = $e.Data['SChannelName'] }
+            $d = $e.Data
+            switch ($e.Id) {
+                8004 { if (-not $enhanced) { [pscustomobject]@{ Source = '8004'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                            User = "$($d['DomainName'])\$($d['UserName'])"; Client = $d['WorkstationName']; Target = $d['SChannelName'] } } }
+                { $_ -in 4022, 4023 } { [pscustomobject]@{ Source = "$($e.Id)"; Dc = $dc.Server; Time = $e.Time; Version = $d['NtlmVersion']
+                        User = "$($d['DomainName'])\$($d['Username'])"; Client = "$($d['RemoteClientMachine']) ($($d['ClientIP']))"; Target = $dc.Server } }
+                { $_ -in 4030..4033 } { [pscustomobject]@{ Source = "$($e.Id)"; Dc = $dc.Server; Time = $e.Time; Version = $d['NtlmVersion']
+                        User = "$($d['AccountDomain'])\$($d['AccountName'])"; Client = $d['AccountMachine']; Target = $d['ServerName'] } }
+            }
         }
-        foreach ($e in $dc.CredentialEvents) {
-            [pscustomobject]@{ Source = '4776'; Dc = $dc.Server; Time = $e.Time
-                User = $e.Data['TargetUserName']; Client = $e.Data['Workstation']; Target = '' }
+        if (-not $enhanced) {
+            foreach ($e in $dc.CredentialEvents) {
+                [pscustomobject]@{ Source = '4776'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                    User = $e.Data['TargetUserName']; Client = $e.Data['Workstation']; Target = '' }
+            }
         }
     }
-    @($rows) | Where-Object { $_ } | Group-Object Source, User, Client, Target | ForEach-Object {
+    @($rows) | Where-Object { $_ } | Group-Object Source, User, Client, Target, Version | ForEach-Object {
         $first = $_.Group[0]
         $times = @($_.Group | ForEach-Object { [datetime]$_.Time } | Sort-Object)
         [pscustomobject]@{
-            Source = $first.Source; User = $first.User; Client = $first.Client; Target = $first.Target
+            Source = $first.Source; User = $first.User; Client = $first.Client; Target = $first.Target; Version = $first.Version
             Count = $_.Count; FirstSeen = $times[0]; LastSeen = $times[-1]
             Dcs = (($_.Group | ForEach-Object Dc | Sort-Object -Unique) -join ', ')
         }
@@ -125,7 +137,7 @@ function Get-ASFinding {
         foreach ($err in $dc.Errors) {
             New-ASFinding 'Warning' 'Collection' $dc.Server 'Event log could not be read' $err 'Run as a member of Event Log Readers (Security log needs Domain Admins or equivalent).'
         }
-        if (-not $dc.AuditNTLMInDomain) {
+        if (-not $dc.AuditNTLMInDomain -and -not @($dc.NtlmEvents | Where-Object { $_.Id -ne 8004 }).Count) {
             New-ASFinding 'Warning' 'Config' $dc.Server 'NTLM auditing is off: report is incomplete' `
                 'Event 8004 is not logged, so NTLM usage on this DC is invisible (only 4776, without target server).' `
                 "GPO on Domain Controllers: 'Network security: Restrict NTLM: Audit NTLM authentication in this domain' = Enable all."
@@ -135,7 +147,7 @@ function Get-ASFinding {
         if ($lm -lt 5) {
             New-ASFinding 'Warning' 'Config' $dc.Server "DC accepts NTLMv1 (LmCompatibilityLevel = $lm)" `
                 'NTLMv1 responses can be cracked or relayed; they give attackers domain credentials.' `
-                "Audit NTLMv1 first (4624 with 'NTLM V1'), then GPO 'Network security: LAN Manager authentication level' = Send NTLMv2 response only. Refuse LM & NTLM."
+                "Check who still uses NTLMv1 first (Version column of NTLM usage on DCs with enhanced NTLM logging, or 4624 with 'NTLM V1'), then GPO 'Network security: LAN Manager authentication level' = Send NTLMv2 response only. Refuse LM & NTLM."
         }
         $dc.KdcEvents | Group-Object Id | ForEach-Object {
             $k = $script:KdcEvents[[int]$_.Name]
@@ -149,6 +161,12 @@ function Get-ASFinding {
             }
             New-ASFinding $k[0] 'RC4' $dc.Server "$($k[1]) (event $($_.Name) x$($_.Count))" "$($k[2]) $who" $k[3]
         }
+    }
+    $v1 = @($NtlmUsage | Where-Object { $_.Version -match 'v1' })
+    if ($v1) {
+        New-ASFinding 'Critical' 'NTLM' (($v1.Target | Sort-Object -Unique) -join ', ') "NTLMv1 in use: $(($v1 | Measure-Object Count -Sum).Sum) authentications" `
+            ("User / client: " + ((@($v1 | ForEach-Object { "$($_.User) / $($_.Client)" } | Sort-Object -Unique) | Select-Object -First 10) -join '; ')) `
+            'Move these clients to NTLMv2 (LmCompatibilityLevel >= 3 on the client, or update the device), then set LAN Manager authentication level = Send NTLMv2 response only. Refuse LM & NTLM on the DCs.'
     }
     $NtlmUsage | Group-Object { if ($_.Target) { $_.Target } else { '(unknown: event 4776)' } } | ForEach-Object {
         $count = ($_.Group | Measure-Object Count -Sum).Sum
@@ -195,7 +213,7 @@ th{font-size:12px;text-transform:uppercase;color:var(--mut)}
         [void]$sb.Append('</table></div>')
     }
     & $table 'Findings' $Result.Findings 'Severity', 'Category', 'Server', 'Title', 'Detail', 'Fix'
-    & $table 'NTLM usage (top 200)' ($Result.NtlmUsage | Select-Object -First 200) 'User', 'Client', 'Target', 'Count', 'LastSeen', 'Source', 'Dcs'
+    & $table 'NTLM usage (top 200)' ($Result.NtlmUsage | Select-Object -First 200) 'User', 'Client', 'Target', 'Version', 'Count', 'LastSeen', 'Source', 'Dcs'
     & $table 'Domain controllers' $Result.DcSummary 'Server', 'Reachable', 'AuditNTLMInDomain', 'LmCompatibilityLevel', 'NtlmEvents', 'CredentialEvents', 'KdcEvents'
     [void]$sb.Append("<p class='mut'>Read-only audit. Generated by AuthScope.</p></body></html>")
     $sb.ToString()

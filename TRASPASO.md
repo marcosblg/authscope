@@ -14,8 +14,10 @@
 ## 3. Estado
 - Enfoque cambiado (nov 2026): RC4 ya está en aplicación completa desde julio 2026 y Microsoft publica `List-AccountKeys.ps1`/`Get-KerbEncryptionUsage.ps1` (repo Kerberos-Crypto). Centro = NTLM; RC4 = diagnóstico de fallos (KDC 201-209).
 - MVP v0.1.0 escrito: `Invoke-AuthScope` → recoge por WinRM de cada DC (8004, 4776, KDC 201-209, `AuditNTLMInDomain`, `LmCompatibilityLevel`), agrega, genera hallazgos con corrección y escribe HTML/JSON/CSV.
-- 8 tests Pester en verde (Pester 5.7.1 vía Save-Module en scratchpad). PSScriptAnalyzer no se ha vuelto a pasar tras el cambio de hallazgos RC4.
-- **Probado en DC real** (TEKU-DC, Windows Server 2025, dominio TEKU.LOCAL = PRODUCCIÓN): recoge, genera HTML/JSON/CSV y hallazgos correctos (NTLMv1 aceptado, auditoría NTLM off, 4776 agregado).
+- 9 tests Pester en verde; PSScriptAnalyzer limpio (Warning/Error).
+- Registro NTLM mejorado (KB5064479, por defecto en 2025/24H2 y en 2019/2022 desde oct 2026): se recogen 4022/4023 (NTLM hacia el DC) y 4030-4033 (reenviado por el DC). Si un DC tiene estos eventos, se ignoran sus 8004/4776 (evita doble conteo). Columna `Version` (NtlmVersion) y hallazgo Critical "NTLMv1 in use". Sin estos eventos ni GPO, sigue el aviso "auditing is off".
+- 4022 verificado con evento real (NtlmVersion='NTLMv2'); 4030-4033 solo por plantilla (no hay servidor miembro).
+- **Probado en DC real** (TEKU-DC, Windows Server 2025, dominio TEKU.LOCAL): recoge, genera HTML/JSON/CSV y hallazgos correctos (NTLMv1 aceptado, auditoría NTLM off, 4776 agregado).
 - Verificado en DC: 8004 = proveedor `Microsoft-Windows-Security-Netlogon` en NTLM/Operational, campos `SChannelName, UserName, DomainName, WorkstationName, SChannelType`. 4776 = `TargetUserName`, `Workstation`. KDC = proveedor `Microsoft-Windows-Kerberos-Key-Distribution-Center` (log System), 201-205 en este build con `AccountName, ServiceName, IpAddress, DDSET, Cipher...`; 206-209 aún no existen en este build.
 - Hallazgos RC4 ya explican cada id (tabla `$script:KdcEvents`: 203/204/208/209 bloqueo = Critical, resto Warning) con pares cuenta → servicio (IP).
 - TenantScope: no se decide ahora. PR a Maester en paralelo (lo lleva Marcos).
@@ -24,12 +26,15 @@
 1. Sin verificar con datos reales: 8004 con la GPO puesta, `AuditNTLMInDomain` con valor, eventos KDC reales. Ambos DC de Marcos son de TEKU (producción) y no quiere tocar GPO ahí: solo comandos de lectura. Hace falta un DC de un dominio de pruebas.
 2. Pasar PSScriptAnalyzer (Save-Module igual que Pester).
 3. Pendiente de Marcos: comprobar que "AuthScope" está libre en GitHub/PSGallery; luego crear repo, README en español, publicar en PSGallery.
-4. Después: modo opcional 8001-8003 en servidores miembros, detección de NTLMv1 real (4624 `LmPackageName = NTLM V1`).
+4. Después: modo opcional 8001-8003 en servidores miembros; NTLMv1 en DC sin registro mejorado (4624 `LmPackageName = NTLM V1`).
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
 
 ## 5. Trampas conocidas
 - Los eventos NTLM no se registran por defecto: sin la GPO de auditoría el informe sale vacío; la herramienta lo avisa.
 - 8001 se registra en el cliente, 8002/8003 en el servidor destino, 8004 en el DC. El MVP solo ve 8004.
+- 8004 solo sale cuando el DC valida NTLM para un servidor miembro; NTLM contra el propio DC no genera 8004.
+- En 4022 real, `TargetMachine`/`TargetDomain` vienen intercambiados; no se usan.
+- En `switch`, la condición `{ $_ -ge 4030 }` también casa con 8004: usar rangos exactos.
 - `LmCompatibilityLevel` ausente = 3 (el DC acepta NTLMv1).
 - Ids de eventos clásicos del KDC llevan bits de nivel (2147483651…): comparar con `Id -band 0xFFFF`.
 - GPO de opciones de seguridad en "No definida" deja el valor tatuado en el registro: para deshacer, poner Deshabilitar.

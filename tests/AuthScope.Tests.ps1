@@ -23,6 +23,21 @@ Describe 'Get-ASNtlmUsage' {
             $u[0].LastSeen | Should -Be ([datetime]'2026-11-03')
         }
     }
+    It 'uses enhanced events (4022/4032) with NTLM version and skips 8004/4776 on that DC' {
+        $e4022 = [pscustomobject]@{ Id = 4022; Time = [datetime]'2026-11-01'; Data = @{ DomainName = 'LAB'; Username = 'bob'; RemoteClientMachine = 'PC2'; ClientIP = '10.0.0.2'; NtlmVersion = 'NTLMv1' } }
+        $e4032 = [pscustomobject]@{ Id = 4032; Time = [datetime]'2026-11-01'; Data = @{ AccountDomain = 'LAB'; AccountName = 'svc'; AccountMachine = 'PC1'; ServerName = 'FS1'; NtlmVersion = 'NTLMv2' } }
+        $cred = [pscustomobject]@{ Id = 4776; Time = [datetime]'2026-11-01'; Data = @{ TargetUserName = 'x'; Workstation = 'PC9' } }
+        InModuleScope AuthScope -Parameters @{ dc = (New-Dc -Ntlm @($e4022, $e4032, (New-8004 old PC3 FS2)) -Cred @($cred)) } {
+            $u = @(Get-ASNtlmUsage -DcData @($dc))
+            $u.Count | Should -Be 2
+            ($u | Where-Object User -eq 'LAB\bob').Client | Should -Be 'PC2 (10.0.0.2)'
+            ($u | Where-Object User -eq 'LAB\bob').Version | Should -Be 'NTLMv1'
+            ($u | Where-Object User -eq 'LAB\svc').Target | Should -Be 'FS1'
+            $f = @(Get-ASFinding -DcData @($dc) -NtlmUsage $u)
+            ($f | Where-Object Title -like 'NTLMv1 in use*').Severity | Should -Be 'Critical'
+            $f.Title | Should -Not -Contain 'NTLM auditing is off: report is incomplete'
+        }
+    }
 }
 
 Describe 'Get-ASFinding' {
