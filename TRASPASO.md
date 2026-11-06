@@ -25,7 +25,7 @@
 ## 4. Siguiente paso
 1. TEKU-DC limpio (GPO de auditoría NTLM en Deshabilitar, carpeta authscope borrada, nov 2026). `AuditNTLMInDomain`=7 verificado.
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
-3. Nombre comprobado (nov 2026): `AuthScope` libre en PSGallery y `marcosblg/authscope` libre en GitHub (hay otros repos "authscope" de terceros, ninguno PowerShell/AD). README.es.md hecho, `ProjectUri` en el manifiesto. Repo público `marcosblg/authscope` subido, con topics, CI en verde (PS 5.1 y 7). Siguiente: Marcos publica en PSGallery con `Publish-Module -Path .\AuthScope -NuGetApiKey <clave>`; anuncio en LinkedIn unos días después, tras probar `Install-Module` en limpio (la clave de PSGallery la mete Marcos, Claude no introduce API keys).
+3. Publicado (6 nov 2026): GitHub https://github.com/marcosblg/authscope (CI verde PS 5.1/7) y PSGallery https://www.powershellgallery.com/packages/AuthScope v0.1.0 (verificado con Save-PSResource). Siguiente: probar `Install-Module AuthScope` en máquina limpia y post en LinkedIn unos días después (gancho: quién usa NTLM antes de que Microsoft lo apague, sin fecha; captura del informe anonimizada). Pendiente de Marcos: borrar las API keys `authscope` y `authscope-publicar` (la segunda quedó expuesta en el chat).
 4. Después: modo opcional 8001-8003 en servidores miembros; NTLMv1 en DC sin registro mejorado (4624 `LmPackageName = NTLM V1`).
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
 
@@ -40,4 +40,5 @@
 - GPO de opciones de seguridad en "No definida" deja el valor tatuado en el registro: para deshacer, poner Deshabilitar.
 - `-MaxEvents` (20000 por log y DC) puede recortar datos en dominios grandes.
 - NTLM no tiene fecha oficial de desactivación: no venderlo con fecha.
+- Publicar: PowerShellGet local es 1.0.0.1 (no fiable). Usar PSResourceGet: `Save-Module Microsoft.PowerShell.PSResourceGet -Path <dir>`, importarlo y `Publish-PSResource -Path .\AuthScope -Repository PSGallery -ApiKey <clave>`; subir `ModuleVersion` antes. La clave la pega Marcos (Read-Host). Ojo: el login puede acabar en `psgallery.azure.com`, que NO es la galería oficial; usar www.powershellgallery.com.
 - Push con `.github/workflows/` exige token con scope `workflow` (`gh auth refresh -s workflow`).
