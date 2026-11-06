@@ -25,7 +25,7 @@
 ## 4. Siguiente paso
 1. TEKU-DC limpio (GPO de auditoría NTLM en Deshabilitar, carpeta authscope borrada, nov 2026). `AuditNTLMInDomain`=7 verificado.
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
-3. Pendiente de Marcos: comprobar que "AuthScope" está libre en GitHub/PSGallery; luego crear repo, README en español, publicar en PSGallery.
+3. Nombre comprobado (nov 2026): `AuthScope` libre en PSGallery y `marcosblg/authscope` libre en GitHub (hay otros repos "authscope" de terceros, ninguno PowerShell/AD). README.es.md hecho, `ProjectUri` en el manifiesto. Pendiente de autorización de Marcos: `gh repo create marcosblg/authscope --public --source . --push` y, después, `Publish-Module -Path .\AuthScope -NuGetApiKey <clave>` (la clave de PSGallery la mete Marcos, Claude no introduce API keys).
 4. Después: modo opcional 8001-8003 en servidores miembros; NTLMv1 en DC sin registro mejorado (4624 `LmPackageName = NTLM V1`).
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
 
