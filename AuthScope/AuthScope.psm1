@@ -2,6 +2,21 @@ Set-StrictMode -Version Latest
 
 $script:Severities = @('Critical', 'Warning', 'Info')
 
+# KDC RC4 events (KB5073381): odd/even audit ids become blocking ids once enforcement is on.
+$script:KdcClientFix = "Enable AES on the client (GPO 'Network security: Configure encryption types allowed for Kerberos'; non-Windows: update firmware/keytab). If impossible, allow RC4 explicitly in the service account msDS-SupportedEncryptionTypes as a temporary exception."
+$script:KdcKeyFix = 'Reset the service account password so it gets AES keys (check with Microsoft List-AccountKeys.ps1), then set msDS-SupportedEncryptionTypes = 0x18.'
+$script:KdcEvents = @{
+    201 = 'Warning', 'Client offers only RC4 (blocked as 203 under enforcement)', 'Client advertises only RC4 and the service has no msDS-SupportedEncryptionTypes.', $script:KdcClientFix
+    202 = 'Warning', 'Service account has no AES keys (blocked as 204 under enforcement)', 'Service account only has RC4/DES keys.', $script:KdcKeyFix
+    203 = 'Critical', 'Kerberos blocked: client offers only RC4', 'KDC refused the ticket: client advertises only RC4.', $script:KdcClientFix
+    204 = 'Critical', 'Kerberos blocked: service account has no AES keys', 'KDC refused the ticket: service account only has RC4/DES keys.', $script:KdcKeyFix
+    205 = 'Warning', 'Domain default allows insecure Kerberos ciphers', 'DefaultDomainSupportedEncTypes on this DC explicitly enables RC4/DES.', 'Remove RC4/DES from HKLM\SYSTEM\CurrentControlSet\Services\KDC\DefaultDomainSupportedEncTypes (or delete it to use the AES default) and restart KDC.'
+    206 = 'Warning', 'Client offers only RC4 to an AES-only service (blocked as 208)', 'Service or domain allows only AES but the client advertises only RC4.', $script:KdcClientFix
+    207 = 'Warning', 'AES-only service has no AES keys (blocked as 209)', 'Service or domain allows only AES but the service account has no AES keys.', $script:KdcKeyFix
+    208 = 'Critical', 'Kerberos blocked: client offers only RC4 to an AES-only service', 'KDC refused the ticket: AES-only configuration and the client advertises only RC4.', $script:KdcClientFix
+    209 = 'Critical', 'Kerberos blocked: AES-only service has no AES keys', 'KDC refused the ticket: AES-only configuration and the service account has no AES keys.', $script:KdcKeyFix
+}
+
 # Runs on each DC through Invoke-Command: only reads registry and event logs.
 $script:DcCollector = {
     param([int]$Days, [int]$MaxEvents)
@@ -123,9 +138,16 @@ function Get-ASFinding {
                 "Audit NTLMv1 first (4624 with 'NTLM V1'), then GPO 'Network security: LAN Manager authentication level' = Send NTLMv2 response only. Refuse LM & NTLM."
         }
         $dc.KdcEvents | Group-Object Id | ForEach-Object {
-            $msg = [string]$_.Group[0].Message
-            New-ASFinding 'Critical' 'RC4' $dc.Server "Kerberos KDC event $($_.Name) x$($_.Count)" $msg.Substring(0, [math]::Min(400, $msg.Length)) `
-                'The account or service in the event lacks AES. Set msDS-SupportedEncryptionTypes = 0x18 (AES only) and reset its password so it gets AES keys; check with Microsoft List-AccountKeys.ps1.'
+            $k = $script:KdcEvents[[int]$_.Name]
+            if (-not $k) {
+                $msg = [string]$_.Group[0].Message
+                $k = 'Critical', "Kerberos KDC event $($_.Name)", $msg.Substring(0, [math]::Min(400, $msg.Length)), $script:KdcKeyFix
+            }
+            $who = if ([int]$_.Name -eq 205) { "DefaultDomainSupportedEncTypes = $($_.Group[0].Data['DDSET'])" } else {
+                $pairs = @($_.Group | ForEach-Object { "$($_.Data['AccountName']) -> $($_.Data['ServiceName']) ($($_.Data['IpAddress']))" } | Sort-Object -Unique)
+                "$($pairs.Count) account/service pairs: " + (($pairs | Select-Object -First 10) -join '; ')
+            }
+            New-ASFinding $k[0] 'RC4' $dc.Server "$($k[1]) (event $($_.Name) x$($_.Count))" "$($k[2]) $who" $k[3]
         }
     }
     $NtlmUsage | Group-Object { if ($_.Target) { $_.Target } else { '(unknown: event 4776)' } } | ForEach-Object {

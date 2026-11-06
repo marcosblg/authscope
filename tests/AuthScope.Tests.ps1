@@ -38,13 +38,18 @@ Describe 'Get-ASFinding' {
             $f.Title | Should -Contain 'DC accepts NTLMv1 (LmCompatibilityLevel = 3)'
         }
     }
-    It 'marks KDC events as Critical RC4, grouped by event id' {
-        $kdc = @(1..3 | ForEach-Object { [pscustomobject]@{ Id = 205; Message = 'no AES key' } })
+    It 'explains KDC RC4 events by id, with affected accounts, blocked ones as Critical' {
+        $ev = { param($Id, $Acc) [pscustomobject]@{ Id = $Id; Message = 'm'; Data = @{ AccountName = $Acc; ServiceName = 'svc-sql'; IpAddress = '10.0.0.5'; DDSET = '0x27' } } }
+        $kdc = @((& $ev 204 'nas$'), (& $ev 204 'nas$'), (& $ev 201 'pc1$'), (& $ev 205 ''), (& $ev 999 'x'))
         InModuleScope AuthScope -Parameters @{ dc = (New-Dc -Kdc $kdc) } {
             $f = @(Get-ASFinding -DcData @($dc) -NtlmUsage @())
-            $f.Count | Should -Be 1
-            $f[0].Severity | Should -Be 'Critical'
-            $f[0].Title | Should -Be 'Kerberos KDC event 205 x3'
+            $f.Count | Should -Be 4
+            $blocked = $f | Where-Object Title -Like '*event 204 x2*'
+            $blocked.Severity | Should -Be 'Critical'
+            $blocked.Detail | Should -Match '1 account/service pairs: nas\$ -> svc-sql \(10.0.0.5\)'
+            ($f | Where-Object Title -Like '*event 201*').Severity | Should -Be 'Warning'
+            ($f | Where-Object Title -Like '*event 205*').Detail | Should -Match 'DefaultDomainSupportedEncTypes = 0x27'
+            ($f | Where-Object Title -Like '*event 999*').Severity | Should -Be 'Critical'
         }
     }
     It 'reports an unreachable DC instead of failing' {
