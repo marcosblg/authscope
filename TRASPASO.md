@@ -25,7 +25,7 @@
 ## 4. Siguiente paso
 1. TEKU-DC limpio (GPO de auditoría NTLM en Deshabilitar, carpeta authscope borrada, nov 2026). `AuditNTLMInDomain`=7 verificado.
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
-3. Nombre comprobado (nov 2026): `AuthScope` libre en PSGallery y `marcosblg/authscope` libre en GitHub (hay otros repos "authscope" de terceros, ninguno PowerShell/AD). README.es.md hecho, `ProjectUri` en el manifiesto. Repo público `marcosblg/authscope` creado (remoto `origin`), pero vacío: push rechazado porque el token de gh no tiene scope `workflow`. Marcos ejecuta `gh auth refresh -h github.com -s workflow` y luego `git push -u origin master`. Después, `Publish-Module -Path .\AuthScope -NuGetApiKey <clave>` (la clave de PSGallery la mete Marcos, Claude no introduce API keys).
+3. Nombre comprobado (nov 2026): `AuthScope` libre en PSGallery y `marcosblg/authscope` libre en GitHub (hay otros repos "authscope" de terceros, ninguno PowerShell/AD). README.es.md hecho, `ProjectUri` en el manifiesto. Repo público `marcosblg/authscope` subido, con topics, CI en verde (PS 5.1 y 7). Siguiente: Marcos publica en PSGallery con `Publish-Module -Path .\AuthScope -NuGetApiKey <clave>`; anuncio en LinkedIn unos días después, tras probar `Install-Module` en limpio (la clave de PSGallery la mete Marcos, Claude no introduce API keys).
 4. Después: modo opcional 8001-8003 en servidores miembros; NTLMv1 en DC sin registro mejorado (4624 `LmPackageName = NTLM V1`).
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
 
