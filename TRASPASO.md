@@ -30,7 +30,7 @@
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
 3. Publicado (6 nov 2026): GitHub https://github.com/marcosblg/authscope (CI verde PS 5.1/7) y PSGallery https://www.powershellgallery.com/packages/AuthScope (última 0.2.1, verificada por la API v2 de la galería). Siguiente: probar `Install-Module AuthScope` en máquina limpia y post en LinkedIn unos días después (gancho: quién usa NTLM antes de que Microsoft lo apague, sin fecha; captura del informe anonimizada). Las API keys se crean con caducidad de 1 día y Glob `AuthScope`; Marcos la pega en una pestaña de terminal (script con Read-Host -AsSecureString), nunca en el chat.
 4. Probar 4624 en un DC real (en TEKU-DC habrá 0 eventos V1 salvo que se fuerce un cliente NTLMv1).
-5. Revertir en TEKU-DC (Default Domain Controllers Policy): «auditar el tráfico NTLM entrante» → Deshabilitar; «tráfico NTLM entrante» quedó en «Permitir todo» por error (= defecto, inocuo).
+5. TEKU-DC revertido por Marcos tras la prueba de 0.2.1 (auditoría NTLM entrante en Deshabilitar).
 6. Posible mejora: en miembros, avisar si `LmCompatibilityLevel` < 3 (el equipo envía NTLMv1). No hecho.
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
 
