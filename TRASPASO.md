@@ -9,7 +9,7 @@
 - Windows PowerShell 5.1 local, sin pwsh ni RSAT.
 - Pester 5.7.1 y PSScriptAnalyzer NO instalados (`Install-Module` no puede escribir en Documents). Workaround: `Save-Module <mod> -Path <scratchpad>\mods` y anteponer esa carpeta a `$env:PSModulePath`.
 - Pruebas reales: TEKU-DC (Server 2025, TEKU.LOCAL). Marcos permite usarlo para pruebas si no se rompe nada y se deshace después. No hay servidor miembro (el otro DC 2019 anidado se va a retirar).
-- Repo git local en `authscope/` (sin remoto). Crear `marcosblg/authscope` en GitHub (licencia ya decidida: AGPL-3.0).
+- Remoto: https://github.com/marcosblg/authscope (rama `master`).
 
 ## 3. Estado
 - Enfoque cambiado (nov 2026): RC4 ya está en aplicación completa desde julio 2026 y Microsoft publica `List-AccountKeys.ps1`/`Get-KerbEncryptionUsage.ps1` (repo Kerberos-Crypto). Centro = NTLM; RC4 = diagnóstico de fallos (KDC 201-209).
@@ -25,7 +25,7 @@
 ## 4. Siguiente paso
 1. TEKU-DC limpio (GPO de auditoría NTLM en Deshabilitar, carpeta authscope borrada, nov 2026). `AuditNTLMInDomain`=7 verificado.
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
-3. Nombre comprobado (nov 2026): `AuthScope` libre en PSGallery y `marcosblg/authscope` libre en GitHub (hay otros repos "authscope" de terceros, ninguno PowerShell/AD). README.es.md hecho, `ProjectUri` en el manifiesto. Pendiente de autorización de Marcos: `gh repo create marcosblg/authscope --public --source . --push` y, después, `Publish-Module -Path .\AuthScope -NuGetApiKey <clave>` (la clave de PSGallery la mete Marcos, Claude no introduce API keys).
+3. Nombre comprobado (nov 2026): `AuthScope` libre en PSGallery y `marcosblg/authscope` libre en GitHub (hay otros repos "authscope" de terceros, ninguno PowerShell/AD). README.es.md hecho, `ProjectUri` en el manifiesto. Repo público `marcosblg/authscope` creado (remoto `origin`), pero vacío: push rechazado porque el token de gh no tiene scope `workflow`. Marcos ejecuta `gh auth refresh -h github.com -s workflow` y luego `git push -u origin master`. Después, `Publish-Module -Path .\AuthScope -NuGetApiKey <clave>` (la clave de PSGallery la mete Marcos, Claude no introduce API keys).
 4. Después: modo opcional 8001-8003 en servidores miembros; NTLMv1 en DC sin registro mejorado (4624 `LmPackageName = NTLM V1`).
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
 
@@ -40,3 +40,4 @@
 - GPO de opciones de seguridad en "No definida" deja el valor tatuado en el registro: para deshacer, poner Deshabilitar.
 - `-MaxEvents` (20000 por log y DC) puede recortar datos en dominios grandes.
 - NTLM no tiene fecha oficial de desactivación: no venderlo con fecha.
+- Push con `.github/workflows/` exige token con scope `workflow` (`gh auth refresh -s workflow`).
