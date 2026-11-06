@@ -16,13 +16,15 @@ NTLM is the basis of relay and pass-the-hash attacks, and Microsoft plans to dis
 | NTLM auditing disabled on a DC (the report would look empty) | `AuditNTLMInDomain` |
 | DC still accepts NTLMv1 / LM | `LmCompatibilityLevel` |
 | Kerberos RC4 / missing AES key failures | System, KDC events 201-209 |
+| Optional, with `-MemberServer`: NTLM seen on member servers (outgoing 8001, incoming 8002/8003) | `Microsoft-Windows-NTLM/Operational` 8001-8003 |
 
-It never writes to AD or to the DCs.
+It never writes to AD, the DCs or the member servers.
 
 ## Usage
 ```powershell
 Install-Module AuthScope -Scope CurrentUser
 Invoke-AuthScope -Days 14 -OutputPath C:\Reports
+Invoke-AuthScope -MemberServer FS1, SQL1   # also read 8001-8003 on these servers
 ```
 Requirements: Windows PowerShell 5.1 or PowerShell 7, WinRM to each DC, and rights to read the Security log (Domain Admins or equivalent). Without `-ComputerName` it audits every DC of the current domain.
 
@@ -30,6 +32,8 @@ Output: `AuthScope-<date>.html`, `.json` (all data) and `-findings.csv`.
 
 ## Enable NTLM auditing first
 Windows Server 2025 and updated 2019/2022 DCs (KB5064479) already have enhanced NTLM logging. Elsewhere, on the Domain Controllers GPO: *Network security: Restrict NTLM: Audit NTLM authentication in this domain* = **Enable all**. Let it run a few days, then run AuthScope.
+
+For `-MemberServer`, on the member servers GPO: *Restrict NTLM: Audit Incoming NTLM Traffic* = **Enable auditing for all accounts** (8002/8003) and *Restrict NTLM: Outgoing NTLM traffic to remote servers* = **Audit all** (8001). The same logon can show up on the DC (8004) and on the member (8003), so per-server counts may add up twice.
 
 ## Development
 ```powershell

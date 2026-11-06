@@ -2,8 +2,8 @@ BeforeAll {
     Import-Module "$PSScriptRoot\..\AuthScope\AuthScope.psd1" -Force
 
     function New-Dc {
-        param($Server = 'DC1', $Audit = 7, $Lm = 5, $Ntlm = @(), $Cred = @(), $Logon = @(), $Kdc = @(), $Reachable = $true)
-        [pscustomobject]@{ Server = $Server; Reachable = $Reachable; AuditNTLMInDomain = $Audit; LmCompatibilityLevel = $Lm
+        param($Server = 'DC1', $Audit = 7, $Lm = 5, $Ntlm = @(), $Cred = @(), $Logon = @(), $Kdc = @(), $Reachable = $true, $Role = 'DC')
+        [pscustomobject]@{ Server = $Server; Role = $Role; Reachable = $Reachable; AuditNTLMInDomain = $Audit; LmCompatibilityLevel = $Lm
             NtlmEvents = $Ntlm; CredentialEvents = $Cred; LogonEvents = $Logon; KdcEvents = $Kdc; Errors = @() }
     }
     function New-8004($User, $Client, $Target, $Time = '2026-11-01') {
@@ -51,6 +51,23 @@ Describe 'Get-ASNtlmUsage' {
             $u[0].Count | Should -Be 2
             (@(Get-ASFinding -DcData @($old) -NtlmUsage $u) | Where-Object Title -like 'NTLMv1 in use*').Title | Should -Be 'NTLMv1 in use: 2 authentications'
             @(Get-ASNtlmUsage -DcData @($new)).Source | Should -Be '4022'
+        }
+    }
+    It 'reads member server events 8001-8003 and skips DC-only checks on members' {
+        $e8001 = [pscustomobject]@{ Id = 8001; Time = [datetime]'2026-11-01'; Data = @{ TargetName = 'cifs/NAS1'; DomainName = 'LAB'; UserName = 'svc'; ProcessName = 'C:pp.exe' } }
+        $e8002 = [pscustomobject]@{ Id = 8002; Time = [datetime]'2026-11-01'; Data = @{ ProcessName = 'C:\Windows\System32\lsass.exe' } }
+        $e8003 = [pscustomobject]@{ Id = 8003; Time = [datetime]'2026-11-01'; Data = @{ DomainName = 'LAB'; UserName = 'bob'; Workstation = 'PC2'; ProcessName = 'System' } }
+        InModuleScope AuthScope -Parameters @{ fs = (New-Dc -Server FS1 -Role Member -Audit $null -Lm $null -Ntlm @($e8001, $e8002, $e8003)); empty = (New-Dc -Server FS2 -Role Member -Audit $null -Lm $null) } {
+            $u = @(Get-ASNtlmUsage -DcData @($fs))
+            $u.Count | Should -Be 3
+            ($u | Where-Object Source -EQ '8001').Target | Should -Be 'cifs/NAS1'
+            ($u | Where-Object Source -EQ '8001').Client | Should -Be 'FS1 (C:pp.exe)'
+            ($u | Where-Object Source -EQ '8003').Client | Should -Be 'PC2'
+            ($u | Where-Object Source -EQ '8003').Target | Should -Be 'FS1'
+            $f = @(Get-ASFinding -DcData @($fs, $empty) -NtlmUsage $u)
+            $f.Title | Should -Not -Contain 'NTLM auditing is off: report is incomplete'
+            $f.Title | Should -Not -Match 'LmCompatibilityLevel'
+            ($f | Where-Object Server -EQ 'FS2').Title | Should -Be 'No NTLM audit events on member server'
         }
     }
 }
@@ -110,7 +127,7 @@ Describe 'ConvertTo-ASHtml' {
 
 Describe 'Invoke-AuthScope' {
     It 'writes HTML, JSON and CSV and returns the worst status' {
-        Mock -ModuleName AuthScope Get-ASDcData { [pscustomobject]@{ Server = 'DC1'; Reachable = $true; AuditNTLMInDomain = 7; LmCompatibilityLevel = 2
+        Mock -ModuleName AuthScope Get-ASDcData { [pscustomobject]@{ Server = 'DC1'; Role = 'DC'; Reachable = $true; AuditNTLMInDomain = 7; LmCompatibilityLevel = 2
                 NtlmEvents = @(); CredentialEvents = @(); LogonEvents = @(); KdcEvents = @(); Errors = @() } }
         $r = Invoke-AuthScope -ComputerName DC1 -OutputPath $TestDrive
         $r.Status | Should -Be 'Warning'

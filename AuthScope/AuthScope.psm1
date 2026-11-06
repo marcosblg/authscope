@@ -17,9 +17,9 @@ $script:KdcEvents = @{
     209 = 'Critical', 'Kerberos blocked: AES-only service has no AES keys', 'KDC refused the ticket: AES-only configuration and the service account has no AES keys.', $script:KdcKeyFix
 }
 
-# Runs on each DC through Invoke-Command: only reads registry and event logs.
+# Runs on each DC (or member server with -Member) through Invoke-Command: only reads registry and event logs.
 $script:DcCollector = {
-    param([int]$Days, [int]$MaxEvents)
+    param([int]$Days, [int]$MaxEvents, [bool]$Member)
     $since = (Get-Date).AddDays(-$Days)
     $errors = New-Object System.Collections.ArrayList
 
@@ -30,7 +30,7 @@ $script:DcCollector = {
 
     function Get-Ev($Filter, $Max) {
         try {
-            $p = if ($Filter.XPath) { @{ LogName = $Filter.LogName; FilterXPath = $Filter.XPath } } else { @{ FilterHashtable = $Filter } }
+            $p = if ($Filter.ContainsKey('XPath')) { @{ LogName = $Filter.LogName; FilterXPath = $Filter.XPath } } else { @{ FilterHashtable = $Filter } }
             foreach ($e in Get-WinEvent @p -MaxEvents $Max -ErrorAction Stop) {
                 $data = @{}
                 foreach ($n in ([xml]$e.ToXml()).Event.EventData.Data) { $data[[string]$n.Name] = [string]$n.'#text' }
@@ -38,6 +38,14 @@ $script:DcCollector = {
             }
         } catch {
             if ($_.FullyQualifiedErrorId -notmatch 'NoMatchingEventsFound') { [void]$errors.Add("$($Filter.LogName): $($_.Exception.Message)") }
+        }
+    }
+
+    # Member servers: 8001 = outgoing NTLM from this server, 8002/8003 = incoming NTLM to it (Restrict NTLM audit GPOs).
+    if ($Member) {
+        return [pscustomobject]@{
+            AuditNTLMInDomain = $null; LmCompatibilityLevel = $null; CredentialEvents = @(); LogonEvents = @(); KdcEvents = @(); Errors = $errors
+            NtlmEvents = @(Get-Ev @{ LogName = 'Microsoft-Windows-NTLM/Operational'; Id = 8001, 8002, 8003; StartTime = $since } $MaxEvents)
         }
     }
 
@@ -66,12 +74,14 @@ function Get-ASDomainController {
 }
 
 function Get-ASDcData {
-    param([string[]]$ComputerName, [int]$Days, [int]$MaxEvents)
+    param([string[]]$ComputerName, [int]$Days, [int]$MaxEvents, [switch]$Member)
+    $role = if ($Member) { 'Member' } else { 'DC' }
     foreach ($dc in $ComputerName) {
         try {
-            $r = Invoke-Command -ComputerName $dc -ScriptBlock $script:DcCollector -ArgumentList $Days, $MaxEvents -ErrorAction Stop
+            $r = Invoke-Command -ComputerName $dc -ScriptBlock $script:DcCollector -ArgumentList $Days, $MaxEvents, $Member.IsPresent -ErrorAction Stop
             [pscustomobject]@{
                 Server               = $dc
+                Role                 = $role
                 Reachable            = $true
                 AuditNTLMInDomain    = $r.AuditNTLMInDomain
                 LmCompatibilityLevel = $r.LmCompatibilityLevel
@@ -83,7 +93,7 @@ function Get-ASDcData {
             }
         } catch {
             [pscustomobject]@{
-                Server = $dc; Reachable = $false; AuditNTLMInDomain = $null; LmCompatibilityLevel = $null
+                Server = $dc; Role = $role; Reachable = $false; AuditNTLMInDomain = $null; LmCompatibilityLevel = $null
                 NtlmEvents = @(); CredentialEvents = @(); LogonEvents = @(); KdcEvents = @(); Errors = @($_.Exception.Message)
             }
         }
@@ -103,6 +113,14 @@ function Get-ASNtlmUsage {
                             User = "$($d['DomainName'])\$($d['UserName'])"; Client = $d['WorkstationName']; Target = $d['SChannelName'] } } }
                 { $_ -in 4022, 4023 } { [pscustomobject]@{ Source = "$($e.Id)"; Dc = $dc.Server; Time = $e.Time; Version = $d['NtlmVersion']
                         User = "$($d['DomainName'])\$($d['Username'])"; Client = "$($d['RemoteClientMachine']) ($($d['ClientIP']))"; Target = $dc.Server } }
+                # shortcut: one NTLM logon to a member can show as 8004 on the DC plus 8003 on the member (and 8001 on the caller), so per-target counts add up; dedupe by time/user if it misleads.
+                8001 { [pscustomobject]@{ Source = '8001'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                        User = "$($d['DomainName'])\$($d['UserName'])"; Client = "$($dc.Server) ($($d['ProcessName']))"; Target = $d['TargetName'] } }
+                # 8002 has no remote user or client, only the local process that accepted NTLM.
+                8002 { [pscustomobject]@{ Source = '8002'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                        User = ''; Client = "(unknown, process $($d['ProcessName']))"; Target = $dc.Server } }
+                8003 { [pscustomobject]@{ Source = '8003'; Dc = $dc.Server; Time = $e.Time; Version = ''
+                        User = "$($d['DomainName'])\$($d['UserName'])"; Client = $d['Workstation']; Target = $dc.Server } }
                 { $_ -in 4030..4033 } { [pscustomobject]@{ Source = "$($e.Id)"; Dc = $dc.Server; Time = $e.Time; Version = $d['NtlmVersion']
                         User = "$($d['AccountDomain'])\$($d['AccountName'])"; Client = $d['AccountMachine']; Target = $d['ServerName'] } }
             }
@@ -147,6 +165,14 @@ function Get-ASFinding {
         }
         foreach ($err in $dc.Errors) {
             New-ASFinding 'Warning' 'Collection' $dc.Server 'Event log could not be read' $err 'Run as a member of Event Log Readers (Security log needs Domain Admins or equivalent).'
+        }
+        if ($dc.Role -eq 'Member') {
+            if (-not @($dc.NtlmEvents).Count) {
+                New-ASFinding 'Warning' 'Config' $dc.Server 'No NTLM audit events on member server' `
+                    'Events 8001-8003 are not logged (auditing off, or no NTLM in the window).' `
+                    "GPO on member servers: 'Network security: Restrict NTLM: Audit Incoming NTLM Traffic' = Enable auditing for all accounts and 'Restrict NTLM: Outgoing NTLM traffic to remote servers' = Audit all."
+            }
+            continue
         }
         if (-not $dc.AuditNTLMInDomain -and -not @($dc.NtlmEvents | Where-Object { $_.Id -ne 8004 }).Count) {
             New-ASFinding 'Warning' 'Config' $dc.Server 'NTLM auditing is off: report is incomplete' `
@@ -225,7 +251,7 @@ th{font-size:12px;text-transform:uppercase;color:var(--mut)}
     }
     & $table 'Findings' $Result.Findings 'Severity', 'Category', 'Server', 'Title', 'Detail', 'Fix'
     & $table 'NTLM usage (top 200)' ($Result.NtlmUsage | Select-Object -First 200) 'User', 'Client', 'Target', 'Version', 'Count', 'LastSeen', 'Source', 'Dcs'
-    & $table 'Domain controllers' $Result.DcSummary 'Server', 'Reachable', 'AuditNTLMInDomain', 'LmCompatibilityLevel', 'NtlmEvents', 'CredentialEvents', 'LogonEvents', 'KdcEvents'
+    & $table 'Servers' $Result.DcSummary 'Server', 'Role', 'Reachable', 'AuditNTLMInDomain', 'LmCompatibilityLevel', 'NtlmEvents', 'CredentialEvents', 'LogonEvents', 'KdcEvents'
     [void]$sb.Append("<p class='mut'>Read-only audit. Generated by AuthScope.</p></body></html>")
     $sb.ToString()
 }
@@ -238,12 +264,17 @@ function Invoke-AuthScope {
     Connects to each DC with WinRM, reads NTLM (8004, 4022/4023, 4030-4033), credential validation (4776),
     NTLMv1 logons (4624) and KDC (201-209)
     events plus NTLM-related registry settings, and writes an HTML report, JSON and a CSV of findings.
+    With -MemberServer it also reads NTLM audit events 8001-8003 on those servers.
     .EXAMPLE
     Invoke-AuthScope -Days 14 -OutputPath C:\Reports
+    .EXAMPLE
+    Invoke-AuthScope -MemberServer FS1, SQL1
     #>
     [CmdletBinding()]
     param(
         [string[]]$ComputerName,
+        # Optional: member servers to read 8001-8003 from (NTLM seen at the server itself, needs the Restrict NTLM audit GPOs).
+        [string[]]$MemberServer,
         [ValidateRange(1, 365)][int]$Days = 7,
         # shortcut: caps events per log per DC, raise it or aggregate remotely if big domains hit the cap.
         [ValidateRange(1, 1000000)][int]$MaxEvents = 20000,
@@ -251,6 +282,7 @@ function Invoke-AuthScope {
     )
     if (-not $ComputerName) { $ComputerName = @(Get-ASDomainController) }
     $dcData = @(Get-ASDcData -ComputerName $ComputerName -Days $Days -MaxEvents $MaxEvents)
+    if ($MemberServer) { $dcData += @(Get-ASDcData -ComputerName $MemberServer -Days $Days -MaxEvents $MaxEvents -Member) }
     $usage = @(Get-ASNtlmUsage -DcData $dcData)
     $findings = @(Get-ASFinding -DcData $dcData -NtlmUsage $usage | Sort-Object { $script:Severities.IndexOf($_.Severity) })
     $result = [pscustomobject]@{
@@ -258,11 +290,12 @@ function Invoke-AuthScope {
         Generated         = (Get-Date).ToString('yyyy-MM-dd HH:mm')
         Days              = $Days
         DomainControllers = $ComputerName
+        MemberServers     = @($MemberServer)
         Status            = Get-ASStatus $findings
         Findings          = $findings
         NtlmUsage         = $usage
         DcSummary         = @($dcData | ForEach-Object {
-                [pscustomobject]@{ Server = $_.Server; Reachable = $_.Reachable; AuditNTLMInDomain = $_.AuditNTLMInDomain
+                [pscustomobject]@{ Server = $_.Server; Role = $_.Role; Reachable = $_.Reachable; AuditNTLMInDomain = $_.AuditNTLMInDomain
                     LmCompatibilityLevel = $_.LmCompatibilityLevel; NtlmEvents = $_.NtlmEvents.Count
                     CredentialEvents = $_.CredentialEvents.Count; LogonEvents = $_.LogonEvents.Count; KdcEvents = $_.KdcEvents.Count }
             })

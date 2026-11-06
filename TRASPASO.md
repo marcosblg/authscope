@@ -21,6 +21,7 @@
 - **Probado en DC real** (TEKU-DC, Windows Server 2025, dominio TEKU.LOCAL): recoge, genera HTML/JSON/CSV y hallazgos correctos (NTLMv1 aceptado, auditoría NTLM off, 4776 agregado).
 - Verificado en DC: 8004 = proveedor `Microsoft-Windows-Security-Netlogon` en NTLM/Operational, campos `SChannelName, UserName, DomainName, WorkstationName, SChannelType`. 4776 = `TargetUserName`, `Workstation`. KDC = proveedor `Microsoft-Windows-Kerberos-Key-Distribution-Center` (log System), 201-205 en este build con `AccountName, ServiceName, IpAddress, DDSET, Cipher...`; 206-209 aún no existen en este build.
 - Hallazgos RC4 ya explican cada id (tabla `$script:KdcEvents`: 203/204/208/209 bloqueo = Critical, resto Warning) con pares cuenta → servicio (IP).
+- v0.2.0 (sin publicar en PSGallery; en GitHub): `-MemberServer FS1, SQL1` lee 8001-8003 en servidores miembros (mismo `$DcCollector` con `$Member`, filas `Role = 'Member'`). Campos sacados del manifiesto del proveedor `Microsoft-Windows-NTLM` (Get-WinEvent -ListProvider): 8001 `TargetName, UserName, DomainName, ProcessName`; 8002 solo `ProcessName` del proceso local (sin usuario/cliente remoto); 8003 `UserName, DomainName, Workstation, ProcessName`. En miembros no se aplican reglas de DC; sin eventos → aviso con las GPO de auditoría. 11 tests en verde, PSSA limpio. Recolector probado en local (0 eventos, sin errores); sin probar contra un miembro real.
 - TenantScope: no se decide ahora. PR a Maester en paralelo (lo lleva Marcos).
 
 ## 4. Siguiente paso
@@ -28,12 +29,14 @@
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
 3. Publicado (6 nov 2026): GitHub https://github.com/marcosblg/authscope (CI verde PS 5.1/7) y PSGallery https://www.powershellgallery.com/packages/AuthScope v0.1.0 (verificado con Save-PSResource). Siguiente: probar `Install-Module AuthScope` en máquina limpia y post en LinkedIn unos días después (gancho: quién usa NTLM antes de que Microsoft lo apague, sin fecha; captura del informe anonimizada). Las API keys se crean con caducidad de 1 día y Glob `AuthScope`; Marcos la pega en una pestaña de terminal (script con Read-Host -AsSecureString), nunca en el chat.
 4. Probar 4624 en un DC real (en TEKU-DC habrá 0 eventos V1 salvo que se fuerce un cliente NTLMv1).
-5. Después: modo opcional 8001-8003 en servidores miembros.
+5. Hecho: modo `-MemberServer` (v0.2.0). Pendiente: probarlo contra un servidor miembro real (no hay en TEKU) y publicar 0.2.0 en PSGallery cuando Marcos lo diga.
+6. Posible mejora: en miembros, avisar si `LmCompatibilityLevel` < 3 (el equipo envía NTLMv1). No hecho.
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
 
 ## 5. Trampas conocidas
 - Los eventos NTLM no se registran por defecto: sin la GPO de auditoría el informe sale vacío; la herramienta lo avisa.
-- 8001 se registra en el cliente, 8002/8003 en el servidor destino, 8004 en el DC. El MVP solo ve 8004.
+- 8001 se registra en el cliente, 8002/8003 en el servidor destino, 8004 en el DC. Un mismo inicio de sesión puede contarse en 8004 (DC) y 8003 (miembro): totales por servidor duplicados (shortcut documentado).
+- `$DcCollector` invocado en local hereda StrictMode del módulo (en remoto no): no acceder a claves ausentes de hashtables (`ContainsKey`).
 - 8004 solo sale cuando el DC valida NTLM para un servidor miembro; NTLM contra el propio DC no genera 8004.
 - En 4022 real, `TargetMachine`/`TargetDomain` vienen intercambiados; no se usan.
 - En `switch`, la condición `{ $_ -ge 4030 }` también casa con 8004: usar rangos exactos.
