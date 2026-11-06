@@ -7,8 +7,8 @@
 
 ## 2. Entorno
 - Windows PowerShell 5.1 local, sin pwsh ni RSAT.
-- Pester 5.7.1 y PSScriptAnalyzer NO están instalados: `Install-Module` falla porque no puede escribir en `Documents\WindowsPowerShell\Modules` (la carpeta ni se crea; probable bloqueo del sandbox o de Acceso controlado a carpetas, sin confirmar). Workaround: `Save-Module Pester -RequiredVersion 5.7.1 -Path <carpeta>` y anteponer esa carpeta a `$env:PSModulePath`.
-- Laboratorio previsto en Proxmox: DC 2019, DC 2025 y un servicio/NAS con RC4 forzado y clientes que usen NTLM.
+- Pester 5.7.1 y PSScriptAnalyzer NO instalados (`Install-Module` no puede escribir en Documents). Workaround: `Save-Module <mod> -Path <scratchpad>\mods` y anteponer esa carpeta a `$env:PSModulePath`.
+- Pruebas reales: TEKU-DC (Server 2025, TEKU.LOCAL). Marcos permite usarlo para pruebas si no se rompe nada y se deshace después. No hay servidor miembro (el otro DC 2019 anidado se va a retirar).
 - Repo git local en `authscope/` (sin remoto). Crear `marcosblg/authscope` en GitHub (licencia ya decidida: AGPL-3.0).
 
 ## 3. Estado
@@ -23,8 +23,8 @@
 - TenantScope: no se decide ahora. PR a Maester en paralelo (lo lleva Marcos).
 
 ## 4. Siguiente paso
-1. Sin verificar con datos reales: 8004 con la GPO puesta, `AuditNTLMInDomain` con valor, eventos KDC reales. Ambos DC de Marcos son de TEKU (producción) y no quiere tocar GPO ahí: solo comandos de lectura. Hace falta un DC de un dominio de pruebas.
-2. Pasar PSScriptAnalyzer (Save-Module igual que Pester).
+1. TEKU-DC limpio (GPO de auditoría NTLM en Deshabilitar, carpeta authscope borrada, nov 2026). `AuditNTLMInDomain`=7 verificado.
+2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
 3. Pendiente de Marcos: comprobar que "AuthScope" está libre en GitHub/PSGallery; luego crear repo, README en español, publicar en PSGallery.
 4. Después: modo opcional 8001-8003 en servidores miembros; NTLMv1 en DC sin registro mejorado (4624 `LmPackageName = NTLM V1`).
 - Marcos no es experto en NTLM/Kerberos: explicar en llano qué hace cada comando y para qué.
