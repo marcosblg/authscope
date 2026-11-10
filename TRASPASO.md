@@ -26,6 +26,7 @@
 - TenantScope: no se decide ahora. PR a Maester en paralelo (lo lleva Marcos).
 
 ## 4. Siguiente paso
+- **En pausa (10 nov 2026):** 0.2.2 publicada, CI verde. Marcos no tiene VM para probar un servidor miembro real ni piensa montarla; solo se retoma si alguien abre un issue o aparece un miembro. No hay releases en GitHub (opcional).
 1. TEKU-DC limpio (GPO de auditoría NTLM en Deshabilitar, carpeta authscope borrada, nov 2026). `AuditNTLMInDomain`=7 verificado.
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
 3. Publicado (6 nov 2026): GitHub https://github.com/marcosblg/authscope (CI verde PS 5.1/7) y PSGallery https://www.powershellgallery.com/packages/AuthScope (última 0.2.1, verificada por la API v2 de la galería). Instalación desde la galería probada (6 nov 2026) en proceso limpio (`-NoProfile`, PSModulePath aislado): 0.2.1 se descarga, sus psd1/psm1 son idénticos al repo (hash), importa, exporta solo `Invoke-AuthScope` y con un DC inexistente acaba limpio (hallazgo "DC not reachable" + HTML/JSON/CSV). `Install-Module` local falla solo al copiar en Documents (trampa del entorno); falta una VM de verdad, sin perfil, si Marcos quiere. Post de LinkedIn listo (ES + EN) en `linkedin/post.md` con captura `linkedin/authscope-demo.png` (datos ficticios CONTOSO); `linkedin/` excluido de git vía `.git/info/exclude`. Afirmaciones del post verificadas con Microsoft (FAQ "Retiring NTLM", KB5064479, KB5066470) y corregidas; Marcos lo publica el martes 10 nov 2026.
