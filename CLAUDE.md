@@ -24,7 +24,7 @@ Invoke-ScriptAnalyzer -Path AuthScope -Recurse -Severity Warning,Error
 - Solo lectura: nunca modifica AD ni los DC.
 - Compatible con Windows PowerShell 5.1 y PowerShell 7. Sin dependencia de RSAT (DC vía System.DirectoryServices).
 - Recogida separada del análisis: todo lo que no es `$DcCollector`/`Get-ASDcData` es puro y testeable.
-- MVP solo lee DC (8004 o, si existe, registro NTLM mejorado 4022/4023/4030-4033, que sustituye a 8004/4776 en ese DC). Eventos 8001-8003 y 4022/4023 de servidores miembros: opcional con `-MemberServer` (lista explícita, sin descubrimiento automático); en miembros no se aplican las reglas de DC (auditoría 8004, LmCompatibilityLevel).
+- MVP solo lee DC (8004 o, si existe, registro NTLM mejorado 4022/4023/4030-4033, que sustituye a 8004/4776 en ese DC). Eventos 8001-8003 y 4022/4023 de servidores miembros: opcional con `-MemberServer` (lista explícita, sin descubrimiento automático); en miembros no se aplican las reglas de DC (auditoría 8004, DC acepta NTLMv1); solo se avisa si `LmCompatibilityLevel` explícito < 3 (el miembro envía NTLMv1).
 - No se replica el inventario de `msDS-SupportedEncryptionTypes`: ya lo hacen los scripts de Microsoft (Kerberos-Crypto).
 - README en inglés primero, versión española después.
 - Licencia: AGPL-3.0 (como el resto de Scope).
