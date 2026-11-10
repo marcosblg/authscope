@@ -26,6 +26,7 @@
 - TenantScope: no se decide ahora. PR a Maester en paralelo (lo lleva Marcos).
 
 ## 4. Siguiente paso
+- **Post de LinkedIn publicado** (10 nov 2026, ES+EN en un post, con captura).
 - **En pausa (10 nov 2026):** 0.2.2 publicada, CI verde. Marcos no tiene VM para probar un servidor miembro real ni piensa montarla; solo se retoma si alguien abre un issue o aparece un miembro. No hay releases en GitHub (opcional).
 1. TEKU-DC limpio (GPO de auditoría NTLM en Deshabilitar, carpeta authscope borrada, nov 2026). `AuditNTLMInDomain`=7 verificado.
 2. Sin verificar con datos reales: 8004 y 4030-4033 (necesitan un servidor miembro), eventos KDC reales.
