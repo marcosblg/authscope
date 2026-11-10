@@ -70,6 +70,13 @@ Describe 'Get-ASNtlmUsage' {
             ($f | Where-Object Server -EQ 'FS2').Title | Should -Be 'No NTLM audit events on member server'
         }
     }
+
+    It 'warns when a member server sends NTLMv1 (LmCompatibilityLevel below 3)' {
+        InModuleScope AuthScope -Parameters @{ low = (New-Dc -Server FS1 -Role Member -Audit $null -Lm 1); ok = (New-Dc -Server FS2 -Role Member -Audit $null -Lm 3) } {
+            $f = @(Get-ASFinding -DcData @($low, $ok) -NtlmUsage @())
+            ($f | Where-Object Title -Match 'sends NTLMv1').Server | Should -Be 'FS1'
+        }
+    }
     It 'prefers 4022 over 8002/8003 on members and counts 8006 like 8004 (shapes from real TEKU-DC events)' {
         $e4022 = [pscustomobject]@{ Id = 4022; Time = [datetime]'2026-11-06'; Data = @{ Username = 'Administrador@teku.local'; DomainName = 'Null'; RemoteClientMachine = 'APLUSSERVER'; ClientIP = '10.10.33.51'; NtlmVersion = 'NTLMv2' } }
         $e8002 = [pscustomobject]@{ Id = 8002; Time = [datetime]'2026-11-06'; Data = @{ ProcessName = '-'; ClientUserName = 'TEKU-DC$'; ClientDomainName = 'TEKU' } }

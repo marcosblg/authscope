@@ -176,6 +176,12 @@ function Get-ASFinding {
                     'Events 8001-8003 and 4022/4023 are not logged (auditing off and no enhanced NTLM logging, or no NTLM in the window).' `
                     "GPO on member servers: 'Network security: Restrict NTLM: Audit Incoming NTLM Traffic' = Enable auditing for all accounts and 'Restrict NTLM: Outgoing NTLM traffic to remote servers' = Audit all."
             }
+            # Missing value = 3 on supported Windows: only an explicit value below 3 sends NTLMv1/LM.
+            if ($null -ne $dc.LmCompatibilityLevel -and [int]$dc.LmCompatibilityLevel -lt 3) {
+                New-ASFinding 'Warning' 'Config' $dc.Server "Server sends NTLMv1 (LmCompatibilityLevel = $($dc.LmCompatibilityLevel))" `
+                    'When this server authenticates to others it may send LM/NTLMv1 responses, which can be cracked or relayed.' `
+                    "GPO on member servers: 'Network security: LAN Manager authentication level' = Send NTLMv2 response only (LmCompatibilityLevel >= 3)."
+            }
             continue
         }
         if (-not $dc.AuditNTLMInDomain -and -not @($dc.NtlmEvents | Where-Object { $_.Id -notin 8004, 8006 }).Count) {

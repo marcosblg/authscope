@@ -17,6 +17,7 @@ NTLM es la base de los ataques de relay y pass-the-hash, y Microsoft prevé desa
 | El DC sigue aceptando NTLMv1 / LM | `LmCompatibilityLevel` |
 | Fallos de Kerberos RC4 / falta de clave AES | Sistema, eventos KDC 201-209 |
 | Opcional, con `-MemberServer`: NTLM visto en servidores miembros (saliente 8001, entrante 8002/8003, o 4022/4023 con registro mejorado, que sustituye a 8002/8003 en ese servidor) | `Microsoft-Windows-NTLM/Operational` 8001-8003, 4022/4023 |
+| Opcional, con `-MemberServer`: el servidor miembro envía NTLMv1 / LM (valor explícito menor que 3) | `LmCompatibilityLevel` |
 
 Nunca escribe en AD, en los DC ni en los servidores miembros.
 
@@ -34,6 +35,8 @@ Salida: `AuthScope-<fecha>.html`, `.json` (todos los datos) y `-findings.csv`.
 Windows Server 2025 y los DC 2019/2022 actualizados (KB5064479) ya traen el registro NTLM mejorado. En los demás, en la GPO de Domain Controllers: *Seguridad de red: restringir NTLM: auditar la autenticación NTLM en este dominio* = **Habilitar todo**. Déjalo unos días y luego ejecuta AuthScope.
 
 Para `-MemberServer`: los servidores con registro NTLM mejorado (Server 2025, y 2019/2022 desde octubre de 2026) registran el NTLM entrante como 4022/4023 sin GPO. Si no, en la GPO de los servidores miembros: *Restringir NTLM: auditar el tráfico NTLM entrante* = **Habilitar auditoría para todas las cuentas** (8002/8003) y *Restringir NTLM: tráfico NTLM saliente hacia servidores remotos* = **Auditar todo** (8001). Un mismo inicio de sesión puede salir en el DC (8004) y en el miembro (8003), así que los totales por servidor pueden contarse dos veces.
+
+> `-MemberServer` solo se ha probado en un DC y en local, aún no contra un servidor miembro real. Si algo no cuadra, abre un issue.
 
 ## Desarrollo
 ```powershell
